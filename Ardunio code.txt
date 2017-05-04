@@ -1,44 +1,125 @@
-
+#include <Arduino.h>
+#include<SoftwareSerial.h>
+#include <ESP8266WiFi.h>
+#include <ESP8266WiFiMulti.h>
+#include <ESP8266HTTPClient.h>
 #include <SPI.h>
 #include <MFRC522.h>
-#define SS_PIN 10
-#define RST_PIN 9
- 
-MFRC522 rfid(SS_PIN, RST_PIN); // Instance of the class
+ESP8266WiFiMulti WiFiMulti;
+
+//char server[] = "192.168.1.32";   //YOUR SERVER
+#define SS_PIN 2 //FOR RFID SS PIN BECASUSE WE ARE USING BOTH ETHERNET SHIELD AND RS-522
+#define RST_PIN 15
+#define No_Of_Card 3
+//WiFiClient client;
+//WiFiServer server(80);
+SoftwareSerial mySerial(8, 9);
+MFRC522 rfid(SS_PIN, RST_PIN);
 MFRC522::MIFARE_Key key;
-// Init array that will store new NUID 
-byte nuidPICC[4];
-void setup() { 
-  Serial.begin(9600);
-  SPI.begin(); // Init SPI bus
-  rfid.PCD_Init(); // Init MFRC522
- 
+byte id[No_Of_Card][4] = {
+  {28, 215, 25, 45},          //RFID NO-1
+  {255, 155, 167, 40},          //RFID NO-2
+  {151, 94, 80, 84}           //RFID NO-3
+};
+byte id_temp[3][3];
+byte i;
+int j = 0;
+
+void setup() {
+
+  Serial.begin(115200);
+  delay(10);
+  mySerial.begin(115200);
+  SPI.begin();
+  rfid.PCD_Init();
+  for (uint8_t t = 4; t > 0; t--) {
+    Serial.printf("[SETUP] WAIT %d...\n", t);
+    Serial.flush();
+    delay(1000);
+  }
+  WiFiMulti.addAP("Hussam", "00000000");
+  for (byte i = 0; i < 6; i++)
+  {
+    key.keyByte[i] = 0xFF;
+  }
+
 }
- 
-void loop() {
-  // Look for new cards
-  if ( ! rfid.PICC_IsNewCardPresent())
-  return;
-  // Verify if the NUID has been readed
-  if ( ! rfid.PICC_ReadCardSerial())
+void loop()
+{ // Check if a client has connected
+  int m = 0;
+  if (!rfid.PICC_IsNewCardPresent())
     return;
-    Serial.print(F("In dec: "));
-    printDec(rfid.uid.uidByte, rfid.uid.size);
-    Serial.println();
- 
+  if (!rfid.PICC_ReadCardSerial())
+    return;
+  for (i = 0; i < 4; i++)
+  {
+    id_temp[0][i] = rfid.uid.uidByte[i];
+    delay(50);
+  }
+  for (i = 0; i < No_Of_Card; i++)
+  {
+    if (id[i][0] == id_temp[0][0])
+    {
+      if (id[i][1] == id_temp[0][1])
+      {
+        if (id[i][2] == id_temp[0][2])
+        {
+          if (id[i][3] == id_temp[0][3])
+          {
+            Serial.print("your card no :");
+            for (int s = 0; s < 4; s++)
+            {
+              Serial.print(rfid.uid.uidByte[s]);
+              Serial.print(" ");
+            }
+            Serial.println("\nVALID");
+            Sending_To_DB();
+            j = 0;
+            rfid.PICC_HaltA(); rfid.PCD_StopCrypto1();   return;
+          }
+        }
+      }
+    }
+    else
+    { j++;
+      if (j == No_Of_Card)
+      {
+        Serial.println("inVALID");
+        Sending_To_DB();
+        j = 0;
+      }
+    }
+  }
   // Halt PICC
   rfid.PICC_HaltA();
   // Stop encryption on PCD
   rfid.PCD_StopCrypto1();
 }
-
-
-/**
- * Helper routine to dump a byte array as dec values to Serial.
- */
-void printDec(byte *buffer, byte bufferSize) {
-  for (byte i = 0; i < bufferSize; i++) {
-    Serial.print(buffer[i] < 0x10 ? " 0" : " ");
-    Serial.print(buffer[i], DEC);
+void Sending_To_DB()   //CONNECTING WITH MYSQL
+{
+  if ((WiFiMulti.run() == WL_CONNECTED)) {
+    HTTPClient http;
+    Serial.print("[HTTP] begin...\n");
+    // configure traged server and url
+    //http.begin("https://192.168.1.12/test.html", "7a 9c f4 db 40 d3 62 5a 6e 21 bc 5c cc 66 c8 3e a1 45 59 38"); //HTTPS
+    http.begin("http://192.168.4.2/SCW/arduino.php"); //HTTP
+    Serial.print("[HTTP] GET...\n");
+    // start connection and send HTTP header
+    int httpCode = http.GET();
+    // httpCode will be negative on error
+    if (httpCode > 0) {
+      // HTTP header has been send and Server response header has been handled
+      Serial.printf("[HTTP] GET... code: %d\n", httpCode);
+      // file found at server
+      if (httpCode == HTTP_CODE_OK) {
+        String payload = http.getString();
+        Serial.println(payload);
+      }
+    } else {
+      Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
+    }
+    http.end();
   }
+
+  delay(10000);
 }
